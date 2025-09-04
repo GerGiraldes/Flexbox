@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Panel de Instrumentos de Aeronaves</title>
+  <!-- Fuente Roboto -->
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      margin: 0;
+      font-family: 'Roboto', sans-serif;
+      background: linear-gradient(135deg, #0f172a, #1e293b);
+      color: #f1f5f9;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      min-height: 100vh;
+      padding: 20px;
+    }
+    .panel {
+      display: grid;
+      grid-template-columns: 1fr 2fr;
+      gap: 20px;
+      width: 100%;
+      max-width: 1200px;
+    }
+    .left, .right {
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 16px;
+      padding: 20px;
+      box-shadow: 0 8px 20px rgba(0,0,0,0.25);
+    }
+    .selects {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    select {
+      flex: 1;
+      padding: 10px 14px;
+      border: none;
+      border-radius: 10px;
+      font-size: 14px;
+      background: rgba(255,255,255,0.1);
+      color: #000000;
+      outline: none;
+      appearance: none;
+      cursor: pointer;
+      box-shadow: 0 4px 8px rgba(0,0,0,0.2) inset;
+    }
+    select:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    .values {
+      display: grid;
+      gap: 12px;
+    }
+    .value-card {
+      background: rgba(255,255,255,0.08);
+      padding: 14px;
+      border-radius: 10px;
+      text-align: center;
+      font-weight: 500;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.25);
+    }
+    .value-label {
+      font-size: 14px;
+      color: #cbd5e1;
+    }
+    .value-number {
+      font-size: 20px;
+      font-weight: 700;
+    }
+    .instrument {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100%;
+      min-height: 300px;
+      font-size: 24px;
+      font-weight: 600;
+      color: #f8fafc;
+      border: 2px dashed rgba(255,255,255,0.2);
+      border-radius: 12px;
+    }
+    @media(max-width: 768px) {
+      .panel {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="panel">
+    <!-- Columna izquierda -->
+    <div class="left">
+      <div class="selects">
+        <select id="grupo">
+          <option value="">Seleccione Grupo</option>
+          <option value="motor">Motor</option>
+          <option value="navegacion">Navegación</option>
+          <option value="vuelo">Control de vuelo</option>
+        </select>
+        <select id="instrumento" disabled>
+          <option value="">Seleccione Instrumento</option>
+        </select>
+      </div>
+      <div class="values" id="values">
+        <!-- Valores dinámicos -->
+      </div>
+    </div>
+
+    <!-- Columna derecha -->
+    <div class="right">
+      <div class="instrument" id="instrument-display">
+        Seleccione un instrumento
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const grupoSelect = document.getElementById('grupo');
+    const instrumentoSelect = document.getElementById('instrumento');
+    const display = document.getElementById('instrument-display');
+    const valuesContainer = document.getElementById('values');
+
+    const instrumentos = {
+      vuelo: [
+        "Anemómetro",
+        "Horizonte artificial",
+        "Altímetro",
+        "Coordinador de virajes",
+        "Indicador de rumbo",
+        "Variometro"
+      ],
+      motor: [
+        "Tacómetro",
+        "Temperatura de aceite",
+        "Presión de aceite",
+        "EGT",
+        "Presión de combustible"
+      ],
+      navegacion: [
+        "VOR",
+        "ADF",
+        "HSI",
+        "GPS"
+      ]
+    };
+
+    
+    // Manejar selección de grupo
+    grupoSelect.addEventListener('change', () => {
+      const grupo = grupoSelect.value;
+      instrumentoSelect.innerHTML = '<option value="">Seleccione Instrumento</option>';
+      if (grupo && instrumentos[grupo]) {
+        instrumentos[grupo].forEach(inst => {
+          const opt = document.createElement('option');
+          opt.value = inst;
+          opt.textContent = inst;
+          instrumentoSelect.appendChild(opt);
+        });
+        instrumentoSelect.disabled = false;
+      } else {
+        instrumentoSelect.disabled = true;
+      }
+      display.textContent = 'Seleccione un instrumento';
+    });
+
+  </script>
+</body>
+</html>
