@@ -1,0 +1,496 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Anemómetro (canvas)</title>
+
+  <!-- Fuente para usar en canvas -->
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+
+  <style>
+    :root {
+      --bg1: #0b1220;
+      --bg2: #111827;
+      --card: rgba(255,255,255,0.04);
+    }
+    html,body {
+      height: 100%;
+      margin: 0;
+      font-family: "Roboto", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+      background: linear-gradient(135deg, var(--bg1), var(--bg2));
+      display: grid;
+      place-items: center;
+      color: #fff;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    /* Contenedor que mantiene proporción cuadrada */
+    .wrap {
+      width: min(92vw, 520px);
+      aspect-ratio: 1/1;
+      background: var(--card);
+      border-radius: 16px;
+      padding: 14px;
+      display: grid;
+      place-items: center;
+      box-shadow: 0 8px 30px rgba(2,6,23,0.6);
+    }
+
+    /* Canvas apilados (dial + needle) */
+    .gauge {
+      position: relative;
+      width: 100%;
+      height: 100%;
+    }
+    canvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    /* Pequeña ayuda visual si algo falla */
+    .fallback {
+      color: #cbd5e1;
+      font-size: 14px;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap" aria-hidden="true">
+    <div class="gauge">
+      <!-- dialCanvas: dial fijo + rosa de los vientos (se rota) -->
+      <canvas id="dialCanvas" aria-label="Dial del anemómetro"></canvas>
+      <!-- needleCanvas: aguja y lecturas centrales (se anima) -->
+      <canvas id="needleCanvas" aria-label="Aguja del anemómetro"></canvas>
+    </div>
+  </div>
+
+  <script>
+  (function () {
+    // Elementos
+    const dialCanvas = document.getElementById('dialCanvas');
+    const needleCanvas = document.getElementById('needleCanvas');
+    const dialCtx = dialCanvas.getContext('2d');
+    const needleCtx = needleCanvas.getContext('2d');
+
+    // Config
+    const CONFIG = {
+      min: 0,
+      max: 100,
+      startAngle: Math.PI * 0.75, // -135°
+      endAngle: Math.PI * 2.25,   // +135°
+      majorTicks: 10,
+      minorPerMajor: 5,
+      padding: 24,
+      dialStroke: 'rgba(255,255,255,0.18)',
+      tickColor: 'rgba(255,255,255,0.92)',
+      minorTickColor: 'rgba(255,255,255,0.55)',
+      needleColor: 'rgba(255,80,80,0.98)',
+      hubColor: 'rgba(255,255,255,0.95)',
+      labelFont: '12px Roboto'
+    };
+
+    // HiDPI handling & responsive
+    let DPR = Math.max(1, window.devicePixelRatio || 1);
+    function resizeCanvases() {
+      DPR = Math.max(1, Math.floor(window.devicePixelRatio || 1));
+      const rect = dialCanvas.getBoundingClientRect();
+      [dialCanvas, needleCanvas].forEach(c => {
+        c.width = Math.round(rect.width * DPR);
+        c.height = Math.round(rect.height * DPR);
+        c.style.width = rect.width + 'px';
+        c.style.height = rect.height + 'px';
+      });
+      dialCtx.setTransform(DPR, 0, 0, DPR, 0, 0);
+      needleCtx.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+      drawDial(); // redibujamos dial estático (pero tenga en cuenta rosa rotation)
+    }
+
+    window.addEventListener('resize', resizeCanvases, { passive: true });
+
+    // Estado animado
+    let displayedSpeed = 0;   // lo que ve la aguja
+    let targetSpeed = 0;      // objetivo setSpeed()
+    let displayedDirection = 0; // grados para rosa actualmente animada
+    let targetDirection = 0;    // objetivo setDirection()
+    let lastTs = performance.now();
+
+    // API pública (expuesta en window)
+    window.setSpeed = function (v) {
+      const n = Number(v);
+      if (isFinite(n)) targetSpeed = clamp(n, CONFIG.min, CONFIG.max);
+    };
+    window.setDirection = function (angleDegrees) {
+      const a = Number(angleDegrees);
+      if (!isFinite(a)) return;
+      // Normalizamos al rango 0..360
+      const normalized = ((a % 360) + 360) % 360;
+      targetDirection = normalized;
+    };
+
+    // Lógica de interpolación suave (exponencial smoothing)
+    function approach(current, target, dt, response = 8.0) {
+      // dt en segundos, response mayor => más rápido
+      const t = 1 - Math.exp(-response * dt);
+      return current + (target - current) * t;
+    }
+
+    // Mapea valor -> ángulo
+    function valueToAngle(v) {
+      const t = (v - CONFIG.min) / (CONFIG.max - CONFIG.min);
+      return CONFIG.startAngle + t * (CONFIG.endAngle - CONFIG.startAngle);
+    }
+
+    // Dibuja dial: arco, ticks, etiquetas y rosa de los vientos
+    function drawDial() {
+      const ctx = dialCtx;
+      const { width, height } = dialCanvas.getBoundingClientRect();
+      const cx = width / 2;
+      const cy = height / 2;
+      const radius = Math.min(cx, cy) - CONFIG.padding;
+
+      ctx.clearRect(0, 0, width, height);
+
+      // fondo circular sutil
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius + 6, 0, Math.PI * 2);
+      const g = ctx.createRadialGradient(cx, cy, radius * 0.2, cx, cy, radius + 6);
+      g.addColorStop(0, 'rgba(255,255,255,0.02)');
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = g;
+      ctx.fill();
+
+      // arco graduado
+      ctx.beginPath();
+      ctx.lineWidth = 10;
+      ctx.strokeStyle = CONFIG.dialStroke;
+      ctx.arc(cx, cy, radius - 10, CONFIG.startAngle, CONFIG.endAngle);
+      ctx.stroke();
+
+      // ticks y etiquetas
+      const totalMajors = CONFIG.majorTicks + 1;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.font = CONFIG.labelFont;
+      for (let i = 0; i < totalMajors; i++) {
+        const value = CONFIG.min + (i * (CONFIG.max - CONFIG.min)) / CONFIG.majorTicks;
+        const angle = valueToAngle(value);
+        drawTick(ctx, cx, cy, radius - 10, angle, true);
+        // etiqueta numérica
+        const labelR = radius - 36;
+        const lx = cx + Math.cos(angle) * labelR;
+        const ly = cy + Math.sin(angle) * labelR;
+        ctx.fillStyle = CONFIG.tickColor;
+        ctx.fillText(Math.round(value).toString(), lx, ly);
+
+        if (i < CONFIG.majorTicks) {
+          for (let m = 1; m < CONFIG.minorPerMajor; m++) {
+            const t = (i + m / CONFIG.minorPerMajor) / CONFIG.majorTicks;
+            const a = CONFIG.startAngle + t * (CONFIG.endAngle - CONFIG.startAngle);
+            drawTick(ctx, cx, cy, radius - 10, a, false);
+          }
+        }
+      }
+
+      // Rosa de los vientos: se dibuja en su propio grupo (se rotará en bucle de animación)
+      drawCompassRose(ctx, cx, cy, radius * 0.55);
+    }
+
+    function drawTick(ctx, cx, cy, r, ang, major) {
+      ctx.save();
+      ctx.beginPath();
+      const len = major ? 16 : 8;
+      const inner = r - len;
+      const outer = r;
+      ctx.moveTo(cx + Math.cos(ang) * inner, cy + Math.sin(ang) * inner);
+      ctx.lineTo(cx + Math.cos(ang) * outer, cy + Math.sin(ang) * outer);
+      ctx.lineWidth = major ? 3 : 1.5;
+      ctx.strokeStyle = major ? CONFIG.tickColor : CONFIG.minorTickColor;
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // Dibuja la rosa de los vientos alrededor del centro; no se aplica rotación aquí
+    // la rotación se aplica en drawCompassWithRotation()
+    function drawCompassRoseBase(ctx, cx, cy, r) {
+      ctx.save();
+      ctx.translate(cx, cy);
+
+      // círculos concéntricos suaves
+      ctx.beginPath();
+      ctx.arc(0, 0, r, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255,255,255,0.02)';
+      ctx.fill();
+
+      // direcciones principales y marcas
+      const directions = [
+        { label: 'N', angle: -90 },
+        { label: 'NE', angle: -45 },
+        { label: 'E', angle: 0 },
+        { label: 'SE', angle: 45 },
+        { label: 'S', angle: 90 },
+        { label: 'SW', angle: 135 },
+        { label: 'O', angle: 180 }, // O=Oeste (Spanish)
+        { label: 'NO', angle: -135 }
+      ];
+
+      // líneas cardinales
+      directions.forEach(d => {
+        const a = (d.angle * Math.PI) / 180;
+        ctx.beginPath();
+        ctx.moveTo(Math.cos(a) * (r * 0.2), Math.sin(a) * (r * 0.2));
+        ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r);
+        ctx.lineWidth = (Math.abs(d.angle) % 90 === 0) ? 2.5 : 1.2;
+        ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+        ctx.stroke();
+      });
+
+      // etiquetas: las dibujaremos desde el contexto rotado externamente
+      ctx.restore();
+    }
+
+    // Dibuja la rosa rotada (para poder rotarla dinámicamente se redibuja en dial canvas cada frame)
+    function drawCompassWithRotation(ctx, cx, cy, r, angleDegrees) {
+      // Redibujamos sólo la rosa en una capa compuesta: para simplicidad redibujamos la rosa encima
+      // Guardamos y aplicamos rotación
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate((angleDegrees * Math.PI) / 180);
+
+      // Base de la rosa (líneas)
+      ctx.beginPath();
+      ctx.arc(0, 0, r, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255,255,255,0.01)';
+      ctx.fill();
+
+      const dirs = [
+        { label: 'N', angle: -90 },
+        { label: 'NE', angle: -45 },
+        { label: 'E', angle: 0 },
+        { label: 'SE', angle: 45 },
+        { label: 'S', angle: 90 },
+        { label: 'SW', angle: 135 },
+        { label: 'O', angle: 180 },
+        { label: 'NO', angle: -135 }
+      ];
+
+      // dibujar puntas
+      dirs.forEach(d => {
+        const a = (d.angle * Math.PI) / 180;
+        // puntero mayor
+        ctx.beginPath();
+        ctx.moveTo(Math.cos(a) * (r * 0.05), Math.sin(a) * (r * 0.05));
+        ctx.lineTo(Math.cos(a) * (r * 0.98), Math.sin(a) * (r * 0.98));
+        ctx.lineWidth = (Math.abs(d.angle) % 90 === 0) ? 2.4 : 1.1;
+        ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+        ctx.stroke();
+      });
+
+      // Etiquetas direccionales (dibujadas con contexto rotado => quedan rotadas con la rosa)
+      ctx.font = Math.max(10, Math.round(r * 0.12)) + 'px Roboto';
+      ctx.fillStyle = 'rgba(255,255,255,0.92)';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      dirs.forEach(d => {
+        const a = (d.angle * Math.PI) / 180;
+        const tx = Math.cos(a) * (r * 0.72);
+        const ty = Math.sin(a) * (r * 0.72);
+        ctx.fillText(d.label, tx, ty);
+      });
+
+      ctx.restore();
+    }
+
+    // Dibuja la aguja y lectura central en needleCanvas
+    function drawNeedleAndReadout(speed) {
+      const ctx = needleCtx;
+      const { width, height } = needleCanvas.getBoundingClientRect();
+      const cx = width / 2;
+      const cy = height / 2;
+      const radius = Math.min(cx, cy) - CONFIG.padding;
+
+      ctx.clearRect(0, 0, width, height);
+
+      // Aguja (centrada, rota al ángulo)
+      const ang = valueToAngle(speed);
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(ang);
+
+      // Aguja cuerpo
+      ctx.beginPath();
+      ctx.moveTo(-12, 0);
+      ctx.lineTo(radius - 28, 0);
+      ctx.lineWidth = 4;
+      ctx.lineCap = 'round';
+      ctx.strokeStyle = CONFIG.needleColor;
+      ctx.stroke();
+
+      // Punta
+      ctx.beginPath();
+      ctx.arc(radius - 28, 0, 6, 0, Math.PI * 2);
+      ctx.fillStyle = CONFIG.needleColor;
+      ctx.fill();
+
+      ctx.restore();
+
+      // Centro (hub)
+      ctx.beginPath();
+      ctx.arc(cx, cy, 10, 0, Math.PI * 2);
+      ctx.fillStyle = CONFIG.hubColor;
+      ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+      ctx.stroke();
+
+      // Lectura numérica central (dibujada en canvas)
+      const txt = Math.round(speed).toString() + ' km/h';
+      ctx.font = `bold ${Math.max(14, Math.round(radius * 0.18))}px Roboto`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = 'rgba(255,255,255,0.95)';
+      ctx.fillText(txt, cx, cy + radius * 0.36);
+    }
+
+    // Util
+    function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+    // Inicialización
+    function init() {
+      // set defaults
+      targetSpeed = 0;
+      displayedSpeed = 0;
+      targetDirection = 0;
+      displayedDirection = 0;
+
+      resizeCanvases();
+      requestAnimationFrame(loop);
+    }
+
+    // Bucle de animación
+    function loop(ts) {
+      const dt = Math.min(0.04, (ts - lastTs) / 1000); // dt en s, cap para estabilidad
+      lastTs = ts;
+
+      // interpolar suavemente speed y direction
+      displayedSpeed = approach(displayedSpeed, targetSpeed, dt, 6.5);
+      // Para dirección tratamos las rotaciones cortas (interpolación circular)
+      const dirDiff = shortestAngleDiff(displayedDirection, targetDirection);
+      displayedDirection = displayedDirection + dirDiff * (1 - Math.exp(-10 * dt));
+      // normalizar
+      displayedDirection = ((displayedDirection % 360) + 360) % 360;
+
+      // Redibujar (dial + compass) y aguja/readout
+      // dialCanvas contiene ticks/labels y la rosa (que necesita rotación dinámica)
+      drawDialStaticThenCompass(displayedDirection);
+      drawNeedleAndReadout(displayedSpeed);
+
+      requestAnimationFrame(loop);
+    }
+
+    // Calcula la diferencia angular mínima target-current en grados (entre -180..180)
+    function shortestAngleDiff(current, target) {
+      let diff = ((target - current + 540) % 360) - 180;
+      return diff;
+    }
+
+    // Para eficiencia: dibuja el dial base solo una vez, luego sobreescribe la rosa rotada
+    let dialBaseImage = null;
+    function drawDial() {
+      // Dibuja la parte estática del dial (arco, ticks, etiquetas) en el canvas y guarda snapshot
+      const ctx = dialCtx;
+      const { width, height } = dialCanvas.getBoundingClientRect();
+      const cx = width / 2;
+      const cy = height / 2;
+      const radius = Math.min(cx, cy) - CONFIG.padding;
+
+      ctx.clearRect(0, 0, width, height);
+
+      // Fondo con leve sombra
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius + 6, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(0,0,0,0)';
+      ctx.fill();
+
+      // Arco y ticks/labels (esta parte es relativamente estática)
+      ctx.beginPath();
+      ctx.lineWidth = 10;
+      ctx.strokeStyle = CONFIG.dialStroke;
+      ctx.arc(cx, cy, radius - 10, CONFIG.startAngle, CONFIG.endAngle);
+      ctx.stroke();
+
+      // ticks y etiquetas
+      const totalMajors = CONFIG.majorTicks + 1;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.font = CONFIG.labelFont;
+      for (let i = 0; i < totalMajors; i++) {
+        const value = CONFIG.min + (i * (CONFIG.max - CONFIG.min)) / CONFIG.majorTicks;
+        const angle = valueToAngle(value);
+        drawTick(ctx, cx, cy, radius - 10, angle, true);
+        const labelR = radius - 36;
+        const lx = cx + Math.cos(angle) * labelR;
+        const ly = cy + Math.sin(angle) * labelR;
+        ctx.fillStyle = CONFIG.tickColor;
+        ctx.fillText(Math.round(value).toString(), lx, ly);
+
+        if (i < CONFIG.majorTicks) {
+          for (let m = 1; m < CONFIG.minorPerMajor; m++) {
+            const t = (i + m / CONFIG.minorPerMajor) / CONFIG.majorTicks;
+            const a = CONFIG.startAngle + t * (CONFIG.endAngle - CONFIG.startAngle);
+            drawTick(ctx, cx, cy, radius - 10, a, false);
+          }
+        }
+      }
+
+      // Guardamos imagen base (sin rosa)
+      try {
+        dialBaseImage = ctx.getImageData(0, 0, dialCanvas.width, dialCanvas.height);
+      } catch (e) {
+        // en caso de CORS o limitación, dejamos dialBaseImage = null y redibujaremos todo cada frame
+        dialBaseImage = null;
+      }
+    }
+
+    function drawDialStaticThenCompass(directionDeg) {
+      const ctx = dialCtx;
+      const { width, height } = dialCanvas.getBoundingClientRect();
+      const cx = width / 2;
+      const cy = height / 2;
+      const radius = Math.min(cx, cy) - CONFIG.padding;
+
+      // Restauramos base si disponible
+      if (dialBaseImage && dialBaseImage.width === dialCanvas.width && dialBaseImage.height === dialCanvas.height) {
+        ctx.putImageData(dialBaseImage, 0, 0);
+      } else {
+        // si no hay imagen base, redibujamos todo estático (más costoso)
+        drawDial(); // esto actualizará dialBaseImage usualmente
+      }
+
+      // dibujar rosa rotada sobre el dial
+      drawCompassWithRotation(ctx, cx, cy, radius * 0.55, directionDeg);
+    }
+
+    // Inicializamos cuando todo listo
+    init();
+
+    // Exponer estado y funciones opcionales para debug
+    window.__anemometer = {
+      getSpeed: () => displayedSpeed,
+      getTargetSpeed: () => targetSpeed,
+      getDirection: () => displayedDirection,
+      getTargetDirection: () => targetDirection,
+      setSpeed: window.setSpeed,
+      setDirection: window.setDirection
+    };
+
+  })();
+  </script>
+</body>
+</html>
