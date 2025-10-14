@@ -179,8 +179,10 @@ instrumentoSelect.addEventListener('change', () => {
       .toLowerCase()
       .replace(/\s+/g, ''); // quitar espacios
 
-    display.innerHTML = `
-  <img src="instrumentos/fotos/${nombreArchivo}.jpg" alt="${instrumento}" style="max-width:100%;max-height:250px;display:block;margin:0 auto 12px auto;border-radius:10px;box-shadow:0 2px 8px rgba(0,0,0,0.3)">
+    ddisplay.innerHTML = `
+  <a href="instrumentos/${nombreArchivo}.html" target="_blank" style="text-decoration:none;">
+    <img src="instrumentos/fotos/${nombreArchivo}.jpg" alt="${instrumento}" style="max-width:100%;max-height:250px;display:block;margin:0 auto 12px auto;border-radius:10px;box-shadow:0 2px 8px rgba(0,0,0,0.3)">
+  </a>
 `;
   } else {
     display.textContent = 'Seleccione un instrumento';
