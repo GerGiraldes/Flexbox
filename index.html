@@ -98,52 +98,37 @@
 </head>
 <body>
   <div class="panel">
-    <!-- Columna izquierda -->
-    <div class="left">
-      <div class="selects">
-        <select id="grupo">
-          <option value="">Seleccione Grupo</option>
-          <option value="motor">Motor</option>
-          <option value="navegacion">Navegación</option>
-          <option value="vuelo">Control de vuelo</option>
-        </select>
-        <select id="instrumento" disabled>
-          <option value="">Seleccione Instrumento</option>
-        </select>
-      </div>
-      <div class="values" id="values">
-        <div class="value-card">
-          
-          <div class="value-number">Valor 1</div>
-          <div class="value-label">1</div>
-          <div class="value-number">Valor 2</div>
-          <div class="value-label">2</div>
-          <div class="value-number">Valor 3</div>
-          <div class="value-label">3</div>
-          <div class="value-number">Valor 4</div>
-          <div class="value-label">4</div>
-         
-        <!-- Valores dinámicos -->
-      </div>
-    </div>
-
-    <!-- Columna derecha -->
-    <div class="right">
-      <div class="instrument" id="instrument-display">
-        Seleccione un instrumento
-      </div>
+  <!-- Columna izquierda -->
+  <div class="left">
+    <div class="selects">
+      <select id="grupo">
+        <option value="">Seleccione Grupo</option>
+        <option value="motor">Motor</option>
+        <option value="navegacion">Navegación</option>
+        <option value="vuelo">Control de vuelo</option>
+      </select>
+      <select id="instrumento" disabled>
+        <option value="">Seleccione Instrumento</option>
+      </select>
     </div>
   </div>
+  <!-- Columna derecha -->
+  <div class="right">
+    <div class="instrument" id="contenedor">
+      Seleccione un instrumento
+    </div>
+  </div>
+</div>
 
   <script>
     const grupoSelect = document.getElementById('grupo');
     const instrumentoSelect = document.getElementById('instrumento');
-    const display = document.getElementById('instrument-display');
+    const display = document.getElementById('contenedor');
     const valuesContainer = document.getElementById('values');
 
     const instrumentos = {
       vuelo: [
-        "Anemómetro",
+        "Anemometro",
         "Horizonte artificial",
         "Altímetro",
         "Coordinador de virajes",
@@ -168,22 +153,40 @@
     
     // Manejar selección de grupo
     grupoSelect.addEventListener('change', () => {
-      const grupo = grupoSelect.value;
-      instrumentoSelect.innerHTML = '<option value="">Seleccione Instrumento</option>';
-      if (grupo && instrumentos[grupo]) {
-        instrumentos[grupo].forEach(inst => {
-          const opt = document.createElement('option');
-          opt.value = inst;
-          opt.textContent = inst;
-          instrumentoSelect.appendChild(opt);
-        });
-        instrumentoSelect.disabled = false;
-      } else {
-        instrumentoSelect.disabled = true;
-      }
-      display.textContent = 'Seleccione un instrumento';
+  const grupo = grupoSelect.value;
+  instrumentoSelect.innerHTML = '<option value="">Seleccione Instrumento</option>';
+  if (grupo && instrumentos[grupo]) {
+    instrumentos[grupo].forEach(inst => {
+      const opt = document.createElement('option');
+      opt.value = inst;
+      opt.textContent = inst;
+      instrumentoSelect.appendChild(opt);
     });
+    instrumentoSelect.disabled = false;
+  } else {
+    instrumentoSelect.disabled = true;
+  }
+  display.textContent = 'Seleccione un instrumento';
+});
 
+// Mostrar imagen al seleccionar instrumento
+instrumentoSelect.addEventListener('change', () => {
+  const instrumento = instrumentoSelect.value;
+  if (instrumento) {
+    // Normalizar el nombre para el archivo (sin tildes, minúsculas, sin espacios)
+    const nombreArchivo = instrumento
+      .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // quitar tildes
+      .toLowerCase()
+      .replace(/\s+/g, ''); // quitar espacios
+
+    display.innerHTML = `
+  <img src="../instrumentos/fotos/${nombreArchivo}.jpg" alt="${instrumento}" style="max-width:100%;max-height:250px;display:block;margin:0 auto 12px auto;border-radius:10px;box-shadow:0 2px 8px rgba(0,0,0,0.3)">
+  <div style="margin-top:8px;font-size:18px;font-weight:600;">${instrumento}</div>
+`;
+  } else {
+    display.textContent = 'Seleccione un instrumento';
+  }
+});
   </script>
 </body>
 </html>
