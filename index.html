@@ -179,9 +179,10 @@ instrumentoSelect.addEventListener('change', () => {
       .toLowerCase()
       .replace(/\s+/g, ''); // quitar espacios
 
-    display.innerHTML = `
+    ddisplay.innerHTML = `
   <a href="instrumentos/${nombreArchivo}.html" target="_blank" style="text-decoration:none;">
     <img src="instrumentos/fotos/${nombreArchivo}.jpg" alt="${instrumento}" style="max-width:100%;max-height:250px;display:block;margin:0 auto 12px auto;border-radius:10px;box-shadow:0 2px 8px rgba(0,0,0,0.3)">
+    <div style="margin-top:8px;font-size:18px;font-weight:600;color:#fff;text-align:center;">${instrumento}</div>
   </a>
 `;
   } else {
